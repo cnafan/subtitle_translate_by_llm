@@ -1,0 +1,9 @@
+{
+    "model_path": "",
+    "folder_path": "V:/movies/Desperate.Housewives.S01-S08.1080p.WEB-DL.DDP5.1.x264-TrollHD",
+    "context_size": 4096,
+    "gpu_layers": -1,
+    "verbose_log": true,
+    "concurrency_level": 16,
+    "bilingual": true
+}
