@@ -1,0 +1,23 @@
+基于 qwen3:4b 创建一个用于翻译的新模型 qwen3-translator
+
+FROM qwen3:4b
+
+[关键设置 1] 禁用所有默认的 Chat Template
+
+强制模型以纯文本补全模式运行，而不是对话模式
+
+TEMPLATE "{{ .Prompt }}"
+
+[关键设置 2] 严格控制模型停止输出，防止生成系统/思考标签
+
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|im_start|>"
+PARAMETER stop "<think>"
+PARAMETER stop "</think>"
+
+[关键设置 3] 性能和翻译准确性参数
+
+temperature=0.7, top_p=0.8 是翻译任务的稳定参数
+
+PARAMETER temperature 0.7
+PARAMETER top_p 0.8

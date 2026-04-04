@@ -4,13 +4,16 @@ import os
 CONFIG_FILE = "translator_config.json"
 
 DEFAULT_CONFIG = {
-    'model_path': '',
+    'api_base_url': 'http://127.0.0.1:1234/api/v1/chat',
+    'api_model': 'qwen3.5-9b',
     'folder_path': '',
-    'context_size': 4096,
+    'context_size': 20000,
+    'batch_size': 20,
     'gpu_layers': -1,
     'verbose_log': True,
-    'concurrency_level': 8,
-    'bilingual': False  # [新增] 双语字幕开关默认关闭
+    'concurrency_level': 4,
+    'bilingual': False,
+    'overwrite_existing': False
 }
 
 

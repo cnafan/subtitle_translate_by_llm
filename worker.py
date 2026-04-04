@@ -3,8 +3,10 @@ import concurrent.futures
 import time
 from PyQt6.QtCore import QThread, pyqtSignal
 from core_logic import LLMEngine, SRTProcessor
+from system_utils import PreventSleepContext
 import pysrt
 import os
+import config
 
 
 class TranslationWorker(QThread):
@@ -13,15 +15,17 @@ class TranslationWorker(QThread):
     finished_signal = pyqtSignal()
     error_signal = pyqtSignal(str)
 
-    def __init__(self, model_id, target_folder, context_size, gpu_layers, verbose_log, concurrency_level, bilingual):
+    def __init__(self, api_base_url, model_id, target_folder, context_size, gpu_layers, verbose_log, concurrency_level, bilingual, overwrite):
         super().__init__()
+        self.api_base_url = api_base_url
         self.model_id = model_id
         self.target_folder = target_folder
         self.context_size = context_size
         self.gpu_layers = gpu_layers
         self.verbose_log = verbose_log
         self.concurrency_level = concurrency_level
-        self.bilingual = bilingual  # [新增] 接收双语参数
+        self.bilingual = bilingual
+        self.overwrite = overwrite
         self.is_running = True
         self.llm_engine = LLMEngine(log_callback=self.emit_log)
         self._executor = None
@@ -32,7 +36,7 @@ class TranslationWorker(QThread):
     def check_stop(self):
         return not self.is_running
 
-    def process_file_concurrently(self, file_path):
+    def process_file(self, file_path):
         try:
             subs = SRTProcessor.read_file(str(file_path))
         except Exception as e:
@@ -46,82 +50,67 @@ class TranslationWorker(QThread):
             self.emit_log(f"文件 {file_path.name} 为空，跳过。")
             return True
 
-        futures = []
+        # 从配置中获取 Batch Size，默认为 20
+        cfg = config.load_config()
+        batch_size = cfg.get('batch_size', 20)
+        
+        # 准备分块任务
+        batches = []
+        for i in range(0, total_items, batch_size):
+            end_idx = min(i + batch_size, total_items)
+            batch_texts = [sub.text for sub in subs[i:end_idx]]
+            batches.append((i, batch_texts))
+
         results_map = {}
         is_completed = True
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.concurrency_level) as executor:
             self._executor = executor
+            
+            # 提交 Batch 任务
+            # 注意：batch_start_index 使用 1-based 为 LLM 友好
+            future_to_batch = {
+                executor.submit(self.llm_engine.translate_batch, texts, start_idx + 1): (start_idx, texts)
+                for start_idx, texts in batches
+            }
 
-            # 1. 提交任务
-            for i, sub in enumerate(subs):
+            for future in concurrent.futures.as_completed(future_to_batch):
                 if not self.is_running:
-                    executor.shutdown(wait=False, cancel_futures=True)
                     is_completed = False
                     break
+                
+                start_idx, original_texts = future_to_batch[future]
+                try:
+                    translated_texts = future.result()
+                    
+                    # 将结果填入 results_map
+                    for offset, trans in enumerate(translated_texts):
+                        idx = start_idx + offset
+                        results_map[idx] = trans
+                    
+                    # 更新进度日志
+                    done_count = len(results_map)
+                    percent = (done_count / total_items) * 100
+                    self.emit_log(f"[{percent:.1f}%] {file_path.name}: 已完成 {done_count}/{total_items} 行")
+                    self.progress_signal.emit(int(percent))
 
-                original_text = sub.text.replace('\n', ' ')
-                if not original_text.strip():
-                    continue
-
-                # 提取上下文
-                prev_text = None
-                if i > 0:
-                    prev_text = subs[i - 1].text.replace('\n', ' ')
-
-                next_text = None
-                if i < total_items - 1:
-                    next_text = subs[i + 1].text.replace('\n', ' ')
-
-                future = executor.submit(
-                    self.llm_engine.translate_text,
-                    original_text,
-                    prev_text,
-                    next_text
-                )
-                futures.append((i, sub, future))
-
-            # 2. 实时收集结果
-            if is_completed:
-                for index, sub, future in futures:
-                    if not self.is_running:
-                        is_completed = False
-                        break
-
-                    current_count = index + 1
-                    percent = (current_count / total_items) * 100
-
-                    try:
-                        translated_text = future.result()
-                        results_map[index] = (sub, translated_text)
-
-                        preview = (translated_text[:30] + '..') if len(translated_text) > 30 else translated_text
-                        self.emit_log(f"[{percent:.1f}%] {file_path.name}: {current_count}/{total_items} -> {preview}")
-
-                    except concurrent.futures.CancelledError:
-                        is_completed = False
-                        break
-                    except Exception as e:
-                        self.emit_log(
-                            f"[{percent:.1f}%] {file_path.name}: 第 {current_count} 行翻译出错: {e}。保留原文。")
-                        results_map[index] = (sub, sub.text)
-
-                    file_progress = int(percent)
-                    self.progress_signal.emit(file_progress)
+                except Exception as e:
+                    self.emit_log(f"处理 Batch (起始索引 {start_idx}) 时出错: {e}")
+                    # 出错则使用原文兜底
+                    for offset, orig in enumerate(original_texts):
+                        idx = start_idx + offset
+                        results_map[idx] = orig
 
         self._executor = None
 
         # 3. 重建字幕文件 (支持双语)
         if is_completed and results_map:
             new_subs = pysrt.SubRipFile()
-            sorted_indices = sorted(results_map.keys())
+            for i in range(total_items):
+                sub = subs[i]
+                translated_text = results_map.get(i, sub.text)
 
-            for i in sorted_indices:
-                sub, translated_text = results_map[i]
-
-                # [核心逻辑] 根据双语开关组合文本
                 if self.bilingual:
-                    # 格式：中文在上，英文在下 (符合大多数阅读习惯)
                     final_text = f"{translated_text}\n{sub.text}"
                 else:
                     final_text = translated_text
@@ -141,10 +130,8 @@ class TranslationWorker(QThread):
                 output_path_str = str(file_path.with_suffix('.srt'))
 
             new_subs.save(output_path_str, encoding='utf-8')
-
             elapsed = time.time() - start_time
-            output_name = output_path_str.split(os.sep)[-1]
-            self.emit_log(f"  -> 已保存: {output_name} (耗时: {elapsed:.1f}s)")
+            self.emit_log(f"  -> 已保存: {os.path.basename(output_path_str)} (耗时: {elapsed:.1f}s)")
             return True
         else:
             self.emit_log(f"  -> 文件 {file_path.name} 任务中断或数据为空，未保存。")
@@ -153,13 +140,14 @@ class TranslationWorker(QThread):
     def run(self):
         try:
             self.llm_engine.load_model(
+                self.api_base_url,
                 self.model_id,
                 self.context_size,
                 self.gpu_layers,
                 self.verbose_log
             )
 
-            files = SRTProcessor.scan_files(self.target_folder)
+            files = SRTProcessor.scan_files(self.target_folder, overwrite=self.overwrite)
             if not files:
                 self.emit_log("未找到需要翻译的 .srt 文件。")
                 self.finished_signal.emit()
@@ -170,15 +158,16 @@ class TranslationWorker(QThread):
 
             total_files = len(files)
 
-            for index, srt_file in enumerate(files):
-                if not self.is_running:
-                    break
+            with PreventSleepContext():
+                for index, srt_file in enumerate(files):
+                    if not self.is_running:
+                        break
 
-                self.emit_log(f"[{index + 1}/{total_files}] 正在处理: {srt_file.name}")
-                self.process_file_concurrently(srt_file)
+                    self.emit_log(f"[{index + 1}/{total_files}] 正在处理: {srt_file.name}")
+                    self.process_file(srt_file)
 
-                progress = int(((index + 1) / total_files) * 100)
-                self.progress_signal.emit(progress)
+                    progress = int(((index + 1) / total_files) * 100)
+                    self.progress_signal.emit(progress)
 
             self.emit_log("任务序列结束。")
             self.finished_signal.emit()

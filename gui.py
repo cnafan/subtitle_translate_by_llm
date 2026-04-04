@@ -3,23 +3,177 @@ import time
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QLineEdit, QPushButton, QTextEdit,
                              QProgressBar, QFileDialog, QMessageBox,
-                             QComboBox, QCheckBox, QSpinBox)
-from PyQt6.QtGui import QFont
+                             QComboBox, QCheckBox, QSpinBox, QFrame)
+from PyQt6.QtGui import QFont, QColor, QPalette
+from PyQt6.QtCore import Qt
 from worker import TranslationWorker
 import config
 
-# Hardcoded default model ID, used for internal config saving/loading/worker creation
-DEFAULT_MODEL_ID = "Qwen2.5-3B-Instruct-AWQ"
+# Apple-inspired Minimalist Dark Theme Stylesheet
+STYLESHEET = """
+QMainWindow {
+    background-color: #1C1C1E;
+}
 
+QWidget {
+    color: #FFFFFF;
+    font-family: "SF Pro Display", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+}
+
+QLabel {
+    font-weight: 400;
+    color: #FFFFFF;
+}
+
+.SectionCard {
+    background-color: #2C2C2E;
+    border: none;
+    border-radius: 16px;
+}
+
+.HeaderLabel {
+    font-size: 18px;
+    font-weight: 600;
+    color: #FFFFFF;
+    margin-bottom: 4px;
+}
+
+QLineEdit, QSpinBox, QComboBox {
+    background-color: #3A3A3C;
+    border: 1px solid #48484A;
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: #FFFFFF;
+    selection-background-color: #0A84FF;
+    selection-color: #FFFFFF;
+}
+
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+    border: 1px solid #0A84FF;
+}
+
+QProgressBar {
+    background-color: #3A3A3C;
+    border: none;
+    border-radius: 4px;
+    text-align: center;
+    color: transparent;
+    height: 8px;
+}
+
+QProgressBar::chunk {
+    background-color: #0A84FF;
+    border-radius: 4px;
+}
+
+QTextEdit {
+    background-color: #2C2C2E;
+    border: 1px solid #38383A;
+    border-radius: 16px;
+    padding: 16px;
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    font-size: 13px;
+    color: #EBEBF5;
+    line-height: 1.5;
+}
+
+QPushButton {
+    background-color: #3A3A3C;
+    border: none;
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-weight: 600;
+    color: #FFFFFF;
+}
+
+QPushButton:hover {
+    background-color: #48484A;
+}
+
+QPushButton:pressed {
+    background-color: #545456;
+}
+
+QPushButton#btnStart {
+    background-color: #0A84FF;
+    color: #FFFFFF;
+}
+
+QPushButton#btnStart:hover {
+    background-color: #409CFF;
+}
+
+QPushButton#btnStart:pressed {
+    background-color: #007AFF;
+}
+
+QPushButton#btnStop {
+    background-color: #FF453A;
+    color: #FFFFFF;
+}
+
+QPushButton#btnStop:hover {
+    background-color: #FF6961;
+}
+
+QPushButton#btnStop:pressed {
+    background-color: #D70015;
+}
+
+QPushButton:disabled {
+    background-color: #2C2C2E;
+    color: #48484A;
+}
+
+QCheckBox {
+    spacing: 12px;
+    color: #EBEBF5;
+}
+
+QCheckBox::indicator {
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    border: 2px solid #48484A;
+    background-color: #2C2C2E;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #0A84FF;
+    border: 2px solid #0A84FF;
+    image: url(check_mark.png); /* Note: if we had a checkmark image */
+}
+
+QScrollBar:vertical {
+    border: none;
+    background: transparent;
+    width: 6px;
+    margin: 4px;
+}
+
+QScrollBar::handle:vertical {
+    background: #48484A;
+    min-height: 40px;
+    border-radius: 3px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #636366;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+"""
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("本地LLM字幕批量翻译工具 (vLLM API并发版)")
-        self.resize(900, 750)
+        self.setWindowTitle("Subtitle Translator")
+        self.resize(1000, 850)
+        self.setStyleSheet(STYLESHEET)
         self.worker = None
-
-        self._model_id = DEFAULT_MODEL_ID
 
         self.init_ui()
         self.load_settings()
@@ -27,131 +181,170 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-        layout = QVBoxLayout(main_widget)
-        layout.setSpacing(10)
+        main_layout = QVBoxLayout(main_widget)
+        main_layout.setContentsMargins(30, 30, 30, 30)
+        main_layout.setSpacing(20)
 
-        # --- 1. 配置区域 ---
-        config_group = QWidget()
-        config_layout = QVBoxLayout(config_group)
-        config_layout.setContentsMargins(0, 0, 0, 0)
+        # --- Title Section ---
+        header_section = QHBoxLayout()
+        title_label = QLabel("字幕 AI 翻译")
+        title_label.setStyleSheet("font-size: 28px; font-weight: 700; color: #FFFFFF;")
+        header_section.addWidget(title_label)
+        header_section.addStretch()
+        main_layout.addLayout(header_section)
 
-        # Model Display
-        model_display_layout = QHBoxLayout()
-        self.model_label_display = QLabel(f"API 模型 ID: <b>{self._model_id}</b>")
-        model_display_layout.addWidget(self.model_label_display)
-        model_display_layout.addStretch()
-        config_layout.addLayout(model_display_layout)
+        # --- API Configuration Card ---
+        api_card = QFrame()
+        api_card.setProperty("class", "SectionCard")
+        api_layout = QVBoxLayout(api_card)
+        api_layout.setContentsMargins(20, 20, 20, 20)
+        api_layout.setSpacing(16)
 
-        # 文件夹路径 (字幕所在目录)
-        h_layout_folder = QHBoxLayout()
+        api_header = QLabel("API 服务配置")
+        api_header.setProperty("class", "HeaderLabel")
+        api_layout.addWidget(api_header)
+
+        api_inputs = QHBoxLayout()
+        v_box_url = QVBoxLayout()
+        label_url = QLabel("API Endpoint")
+        label_url.setStyleSheet("color: #8E8E93; font-size: 11px; text-transform: uppercase; font-weight: 700;")
+        v_box_url.addWidget(label_url)
+        self.input_api_url = QLineEdit()
+        self.input_api_url.setPlaceholderText("http://localhost:1234/v1")
+        v_box_url.addWidget(self.input_api_url)
+
+        v_box_model = QVBoxLayout()
+        label_model = QLabel("Model ID")
+        label_model.setStyleSheet("color: #8E8E93; font-size: 11px; text-transform: uppercase; font-weight: 700;")
+        v_box_model.addWidget(label_model)
+        self.input_model_id = QLineEdit()
+        self.input_model_id.setPlaceholderText("qwen3.5-9b")
+        v_box_model.addWidget(self.input_model_id)
+
+        api_inputs.addLayout(v_box_url, 3)
+        api_inputs.addLayout(v_box_model, 2)
+        api_layout.addLayout(api_inputs)
+        main_layout.addWidget(api_card)
+
+        # --- Files & Generation Card ---
+        file_card = QFrame()
+        file_card.setProperty("class", "SectionCard")
+        file_layout = QVBoxLayout(file_card)
+        file_layout.setContentsMargins(20, 20, 20, 20)
+        file_layout.setSpacing(16)
+
+        file_header = QLabel("文件与生成选项")
+        file_header.setProperty("class", "HeaderLabel")
+        file_layout.addWidget(file_header)
+
+        path_layout = QHBoxLayout()
         self.input_folder = QLineEdit()
-        self.input_folder.setPlaceholderText("选择包含 SRT 字幕的文件夹")
+        self.input_folder.setPlaceholderText("字幕所在文件夹路径")
         btn_folder = QPushButton("选择文件夹")
+        btn_folder.setFixedWidth(120)
         btn_folder.clicked.connect(self.select_folder)
-        h_layout_folder.addWidget(QLabel("字幕文件夹:"))
-        h_layout_folder.addWidget(self.input_folder)
-        h_layout_folder.addWidget(btn_folder)
-        config_layout.addLayout(h_layout_folder)
+        path_layout.addWidget(self.input_folder)
+        path_layout.addWidget(btn_folder)
+        file_layout.addLayout(path_layout)
 
-        # 高级设置
-        h_layout_adv = QHBoxLayout()
-
-        # Concurrency Level
+        # Advanced Settings
+        adv_layout = QHBoxLayout()
+        adv_layout.setSpacing(25)
+        
+        concur_box = QHBoxLayout()
+        c_label = QLabel("并发数:")
+        c_label.setStyleSheet("color: #8E8E93;")
+        concur_box.addWidget(c_label)
         self.spin_concurrency = QSpinBox()
-        self.spin_concurrency.setRange(1, 32)
-        self.spin_concurrency.setValue(8)
-        self.spin_concurrency.setToolTip("同时发送的 API 请求数量。")
+        self.spin_concurrency.setRange(1, 64)
+        self.spin_concurrency.setFixedWidth(75)
+        concur_box.addWidget(self.spin_concurrency)
+        adv_layout.addLayout(concur_box)
 
-        # 上下文 (显示)
-        self.combo_ctx = QComboBox()
-        self.combo_ctx.addItems(["2048", "4096", "8192"])
-        self.combo_ctx.setEnabled(False)
-
-        # GPU (显示)
-        self.input_gpu = QLineEdit("-1")
-        self.input_gpu.setPlaceholderText("由服务器控制")
-        self.input_gpu.setFixedWidth(100)
-        self.input_gpu.setEnabled(False)
-
-        # [新增] 双语字幕复选框
-        self.check_bilingual = QCheckBox("生成双语字幕")
-        self.check_bilingual.setToolTip("勾选后，输出文件将包含【中文翻译 + 英文原文】")
-
-        self.check_verbose = QCheckBox("启用详细日志")
+        self.check_bilingual = QCheckBox("双语输出")
+        self.check_overwrite = QCheckBox("覆盖已有")
+        self.check_verbose = QCheckBox("详细日志")
         self.check_verbose.setChecked(True)
 
-        h_layout_adv.addWidget(QLabel("并发数:"))
-        h_layout_adv.addWidget(self.spin_concurrency)
-        h_layout_adv.addSpacing(15)
-        h_layout_adv.addWidget(self.check_bilingual)  # 加入布局
-        h_layout_adv.addSpacing(15)
-        h_layout_adv.addWidget(self.check_verbose)
-        h_layout_adv.addStretch()
+        adv_layout.addWidget(self.check_bilingual)
+        adv_layout.addWidget(self.check_overwrite)
+        adv_layout.addWidget(self.check_verbose)
+        adv_layout.addStretch()
 
-        # 为了布局紧凑，上下文和GPU信息可以放这里或者简化，这里保留但简化显示
+        file_layout.addLayout(adv_layout)
+        main_layout.addWidget(file_card)
 
-        config_layout.addLayout(h_layout_adv)
-        layout.addWidget(config_group)
+        # --- Console & Processing ---
+        log_header = QLabel("处理进度与控制台")
+        log_header.setProperty("class", "HeaderLabel")
+        main_layout.addWidget(log_header)
 
-        # --- 2. 日志区域 ---
         self.text_log = QTextEdit()
         self.text_log.setReadOnly(True)
-        self.text_log.setStyleSheet("background-color: #1e1e1e; color: #00ff00; font-family: Consolas;")
-        layout.addWidget(QLabel("运行日志:"))
-        layout.addWidget(self.text_log)
+        main_layout.addWidget(self.text_log)
 
-        # --- 3. 进度条与按钮 ---
         self.progress_bar = QProgressBar()
         self.progress_bar.setValue(0)
-        layout.addWidget(self.progress_bar)
+        self.progress_bar.setTextVisible(False)
+        main_layout.addWidget(self.progress_bar)
 
         h_layout_btns = QHBoxLayout()
-        self.btn_start = QPushButton("开始批量翻译")
-        self.btn_start.setMinimumHeight(45)
-        self.btn_start.setStyleSheet("background-color: #2c3e50; color: white; font-weight: bold; font-size: 14px;")
+        h_layout_btns.setSpacing(15)
+        self.btn_start = QPushButton("开始翻译任务")
+        self.btn_start.setObjectName("btnStart")
+        self.btn_start.setMinimumHeight(54)
         self.btn_start.clicked.connect(self.start_processing)
 
         self.btn_stop = QPushButton("停止")
-        self.btn_stop.setMinimumHeight(45)
-        self.btn_stop.setStyleSheet("background-color: #c0392b; color: white; font-size: 14px;")
+        self.btn_stop.setObjectName("btnStop")
+        self.btn_stop.setMinimumHeight(54)
+        self.btn_stop.setFixedWidth(120)
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_processing)
 
         h_layout_btns.addWidget(self.btn_start)
         h_layout_btns.addWidget(self.btn_stop)
-        layout.addLayout(h_layout_btns)
+        main_layout.addLayout(h_layout_btns)
 
     def log(self, message):
-        timestamp = time.strftime("[%H:%M:%S]", time.localtime())
-        self.text_log.append(f"{timestamp} {message}")
+        timestamp = time.strftime("%H:%M:%S", time.localtime())
+        # Cleaner text logs for dark theme
+        clean_msg = message.replace("<b>", "").replace("</b>", "").replace("<span style='color: #ef4444;'>", "").replace("<span style='color: #10b981;'>", "").replace("</span>", "")
+        # Add subtle colors for logs if needed (optional)
+        if "完成" in message or "成功" in message:
+            display_msg = f"<span style='color: #30D158;'>[{timestamp}] {clean_msg}</span>"
+        elif "错误" in message or "失败" in message:
+            display_msg = f"<span style='color: #FF453A;'>[{timestamp}] {clean_msg}</span>"
+        else:
+            display_msg = f"<span style='color: #EBEBF5;'>[{timestamp}] {clean_msg}</span>"
+            
+        self.text_log.append(display_msg)
         sb = self.text_log.verticalScrollBar()
         sb.setValue(sb.maximum())
 
-    # --- 事件处理 ---
-
     def load_settings(self):
         cfg = config.load_config()
-        self._model_id = cfg.get('model_path', DEFAULT_MODEL_ID)
-        self.model_label_display.setText(f"API 模型 ID: <b>{self._model_id}</b>")
+        self.input_api_url.setText(cfg.get('api_base_url', 'http://127.0.0.1:1234/api/v1/chat'))
+        self.input_model_id.setText(cfg.get('api_model', 'qwen3.5-9b'))
         self.input_folder.setText(cfg.get('folder_path', ''))
-        self.spin_concurrency.setValue(cfg.get('concurrency_level', 8))
-        self.input_gpu.setText(str(cfg.get('gpu_layers', '-1')))
+        self.spin_concurrency.setValue(cfg.get('concurrency_level', 4))
         self.check_verbose.setChecked(cfg.get('verbose_log', True))
-
-        # [加载] 双语设置
         self.check_bilingual.setChecked(cfg.get('bilingual', False))
-
-        self.log(f"配置已加载。")
+        self.check_overwrite.setChecked(cfg.get('overwrite_existing', False))
+        self.log("系统就绪。")
 
     def save_settings(self):
         cfg = {
-            'model_path': self._model_id,
+            'api_base_url': self.input_api_url.text().strip(),
+            'api_model': self.input_model_id.text().strip(),
             'folder_path': self.input_folder.text().strip(),
-            'context_size': 4096,
+            'context_size': 20000,
+            'batch_size': 50,
             'gpu_layers': -1,
             'verbose_log': self.check_verbose.isChecked(),
             'concurrency_level': self.spin_concurrency.value(),
-            'bilingual': self.check_bilingual.isChecked()  # [保存] 双语设置
+            'bilingual': self.check_bilingual.isChecked(),
+            'overwrite_existing': self.check_overwrite.isChecked()
         }
         config.save_config(cfg)
 
@@ -161,30 +354,29 @@ class MainWindow(QMainWindow):
             self.input_folder.setText(folder_path)
 
     def start_processing(self):
-        model_id = self._model_id
+        api_url = self.input_api_url.text().strip()
+        model_id = self.input_model_id.text().strip()
         folder = self.input_folder.text().strip()
         concurrency = self.spin_concurrency.value()
 
-        if not folder or not os.path.exists(folder):
-            QMessageBox.warning(self, "错误", "字幕文件夹路径无效")
+        if not api_url or not folder or not os.path.exists(folder):
+            QMessageBox.warning(self, "配置错误", "请检查配置信息。")
             return
 
         self.save_settings()
-
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
         self.input_folder.setEnabled(False)
         self.progress_bar.setValue(0)
-        self.log("--- 启动后台线程 (vLLM API) ---")
-        self.log(f"并发: {concurrency} | 双语模式: {'开' if self.check_bilingual.isChecked() else '关'}")
+        self.log(f"任务启动 - 并发: {concurrency}")
 
-        ctx = 4096
+        ctx = 20000
         gpu = -1
         verbose = self.check_verbose.isChecked()
-        bilingual = self.check_bilingual.isChecked()  # 获取复选框状态
+        bilingual = self.check_bilingual.isChecked()
+        overwrite = self.check_overwrite.isChecked()
 
-        # 传入 bilingual 参数
-        self.worker = TranslationWorker(model_id, folder, ctx, gpu, verbose, concurrency, bilingual)
+        self.worker = TranslationWorker(api_url, model_id, folder, ctx, gpu, verbose, concurrency, bilingual, overwrite)
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.finished_signal.connect(self.on_finished)
@@ -198,9 +390,9 @@ class MainWindow(QMainWindow):
             self.btn_stop.setEnabled(False)
 
     def on_finished(self):
-        self.log("--- 任务结束 ---")
+        self.log("任务全部完成。")
         self.reset_ui_state()
-        QMessageBox.information(self, "完成", "任务已结束")
+        QMessageBox.information(self, "完成", "所有任务已处理完毕。")
 
     def on_error(self, msg):
         self.log(f"错误: {msg}")

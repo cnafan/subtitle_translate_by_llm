@@ -7,8 +7,10 @@ from gui import MainWindow
 def main():
     app = QApplication(sys.argv)
 
-    # 设置全局默认字体
-    font = QFont("Microsoft YaHei", 10)
+    # 设置全局默认字体 (优先使用更现代的无衬线字体)
+    font = QFont("Segoe UI", 10)
+    if "PingFang SC" in QFont().families():
+         font = QFont("PingFang SC", 10)
     app.setFont(font)
 
     window = MainWindow()
