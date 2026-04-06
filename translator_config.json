@@ -1,12 +1,13 @@
 {
     "api_base_url": "http://127.0.0.1:1234/api/v1/chat",
     "api_model": "qwen3.5-9b",
-    "folder_path": "C:/Users/Johnny/Desktop/\u662f",
+    "folder_path": "Y:/gg/movies/\u7535\u89c6\u5267/\u7edd\u671b\u4e3b\u5987 (2004)",
     "context_size": 20000,
     "batch_size": 50,
     "gpu_layers": -1,
     "verbose_log": true,
-    "concurrency_level": 16,
+    "concurrency_level": 4,
     "bilingual": true,
-    "overwrite_existing": true
+    "overwrite_existing": true,
+    "output_ass": true
 }

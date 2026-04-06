@@ -13,7 +13,8 @@ DEFAULT_CONFIG = {
     'verbose_log': True,
     'concurrency_level': 4,
     'bilingual': False,
-    'overwrite_existing': False
+    'overwrite_existing': False,
+    'output_ass': False
 }
 
 

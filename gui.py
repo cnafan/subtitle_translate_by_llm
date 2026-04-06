@@ -262,11 +262,13 @@ class MainWindow(QMainWindow):
         adv_layout.addLayout(concur_box)
 
         self.check_bilingual = QCheckBox("双语输出")
+        self.check_ass = QCheckBox("生成 ASS 样式字幕")
         self.check_overwrite = QCheckBox("覆盖已有")
         self.check_verbose = QCheckBox("详细日志")
         self.check_verbose.setChecked(True)
 
         adv_layout.addWidget(self.check_bilingual)
+        adv_layout.addWidget(self.check_ass)
         adv_layout.addWidget(self.check_overwrite)
         adv_layout.addWidget(self.check_verbose)
         adv_layout.addStretch()
@@ -331,6 +333,7 @@ class MainWindow(QMainWindow):
         self.check_verbose.setChecked(cfg.get('verbose_log', True))
         self.check_bilingual.setChecked(cfg.get('bilingual', False))
         self.check_overwrite.setChecked(cfg.get('overwrite_existing', False))
+        self.check_ass.setChecked(cfg.get('output_ass', False))
         self.log("系统就绪。")
 
     def save_settings(self):
@@ -344,7 +347,8 @@ class MainWindow(QMainWindow):
             'verbose_log': self.check_verbose.isChecked(),
             'concurrency_level': self.spin_concurrency.value(),
             'bilingual': self.check_bilingual.isChecked(),
-            'overwrite_existing': self.check_overwrite.isChecked()
+            'overwrite_existing': self.check_overwrite.isChecked(),
+            'output_ass': self.check_ass.isChecked()
         }
         config.save_config(cfg)
 
@@ -375,8 +379,9 @@ class MainWindow(QMainWindow):
         verbose = self.check_verbose.isChecked()
         bilingual = self.check_bilingual.isChecked()
         overwrite = self.check_overwrite.isChecked()
+        output_ass = self.check_ass.isChecked()
 
-        self.worker = TranslationWorker(api_url, model_id, folder, ctx, gpu, verbose, concurrency, bilingual, overwrite)
+        self.worker = TranslationWorker(api_url, model_id, folder, ctx, gpu, verbose, concurrency, bilingual, overwrite, output_ass)
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.progress_bar.setValue)
         self.worker.finished_signal.connect(self.on_finished)
